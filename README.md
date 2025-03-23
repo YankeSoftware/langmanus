@@ -1,4 +1,4 @@
-# 🦜🤖 LangManus
+# 🦜🤖 LangManus - AI Automation Framework
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -7,9 +7,23 @@
 
 [English](./README.md) | [简体中文](./README_zh.md) | [日本語](./README_ja.md)
 
-> Come From Open Source, Back to Open Source
+> Your intelligent AI system for complex tasks
 
-LangManus is a community-driven AI automation framework that builds upon the incredible work of the open source community. Our goal is to combine language models with specialized tools for tasks like web search, crawling, and Python code execution, while giving back to the community that made this possible.
+This is a highly optimized version of LangManus, a community-driven AI automation framework that combines the power of language models with specialized tools and a simple memory system. Built upon the incredible work of the open source community, this version focuses on efficiency, reliability, and independence from third-party services.
+
+## Key Features
+
+LangManus includes several important features:
+
+- **Local LLM Integration**: Uses [LM Studio](https://lmstudio.ai/) for local model inference
+- **Privacy-Focused Search**: Uses Brave Search API, prioritizing privacy
+- **Simple Memory System**: Built-in memory system for retaining context between sessions
+- **Complete Local Operation**: All components can run locally for maximum privacy and control
+- **Multi-agent Workflows**: Orchestrated team of specialized agents to tackle complex tasks
+- **Memory Integration**: Context-aware conversations with memory capabilities
+- **Tool Integration**: Web search, coding, and other capabilities
+- **System Diagnostics**: Comprehensive checks for all system components
+- **RLHF Integration**: Collect and utilize user feedback to improve responses
 
 ## Demo
 
@@ -48,25 +62,46 @@ LangManus is a community-driven AI automation framework that builds upon the inc
 
 ## Quick Start
 
-```bash
-# Clone the repository
-git clone https://github.com/langmanus/langmanus.git
-cd langmanus
+1. Clone this repository:
+   ```
+   git clone https://github.com/yourusername/langmanus.git
+   cd langmanus
+   ```
 
-# Install dependencies, uv will take care of the python interpreter and venv creation
-uv sync
+2. Install dependencies:
+   ```
+   pip install -r requirements.txt
+   ```
 
-# Playwright install to use Chromium for browser-use by default
-uv run playwright install
+3. Configure environment variables in a `.env` file:
+   ```
+   OPENAI_API_KEY=your_openai_key
+   BRAVE_API_KEY=your_brave_search_key
+   
+   # For LM Studio setup
+   BASIC_MODEL=mistralai/Mistral-7B-Instruct-v0.3
+   BASIC_BASE_URL=http://localhost:1234/v1
+   BASIC_API_KEY=not-needed
+   
+   REASONING_MODEL=mistralai/Mistral-7B-Instruct-v0.3
+   REASONING_BASE_URL=http://localhost:1234/v1
+   REASONING_API_KEY=not-needed
+   ```
 
-# Configure environment
-# Windows: copy .env.example .env
-cp .env.example .env
-# Edit .env with your API keys
+4. Launch the system:
+   ```
+   # On Windows
+   launch.bat
+   
+   # On Linux/Mac
+   chmod +x launch.sh
+   ./launch.sh
+   ```
 
-# Run the project
-uv run main.py
-```
+5. Or run directly with Python:
+   ```
+   python main.py "your query here"
+   ```
 
 ## Project Statement
 
@@ -101,10 +136,10 @@ The system consists of the following agents working together:
 1. **Coordinator** - The entry point that handles initial interactions and routes tasks
 2. **Planner** - Analyzes tasks and creates execution strategies
 3. **Supervisor** - Oversees and manages the execution of other agents
-4. **Researcher** - Gathers and analyzes information
+4. **Researcher** - Gathers and analyzes information using Brave Search and retrieved personal memories
 5. **Coder** - Handles code generation and modifications
 6. **Browser** - Performs web browsing and information retrieval
-7. **Reporter** - Generates reports and summaries of the workflow results
+7. **Reporter** - Generates reports and stores important information in your personalized memory system
 
 ## Features
 
@@ -118,7 +153,7 @@ The system consists of the following agents working together:
 ### Tools and Integrations
 
 - 🔍 **Search and Retrieval**
-    - Web search via Tavily API
+    - Web search via Brave Search API
     - Neural search with Jina
     - Advanced content extraction
 
@@ -141,7 +176,7 @@ The system consists of the following agents working together:
 We believe in the power of open source collaboration. This project wouldn't be possible without the amazing work of projects like:
 
 - [Qwen](https://github.com/QwenLM/Qwen) for their open source LLMs
-- [Tavily](https://tavily.com/) for search capabilities
+- [Brave Search](https://brave.com/search/) for search capabilities
 - [Jina](https://jina.ai/) for crawl search technology
 - [Browser-use](https://pypi.org/project/browser-use/) for control browser
 - And many other open source contributors
@@ -153,189 +188,88 @@ We're committed to giving back to the community and welcome contributions of all
 ### Prerequisites
 
 - [uv](https://github.com/astral-sh/uv) package manager
+- [LM Studio](https://lmstudio.ai/) - For running local LLMs
+- [Brave Search API Key](https://brave.com/search/api/) - For search functionality
 
 ### Installation
 
-LangManus leverages [uv](https://github.com/astral-sh/uv) as its package manager to streamline dependency management.
-Follow the steps below to set up a virtual environment and install the necessary dependencies:
+LangManus leverages [uv](https://github.com/astral-sh/uv) as its package manager to streamline dependency management:
 
 ```bash
-# Step 1: Create and activate a virtual environment through uv
-uv python install 3.12
-uv venv --python 3.12
+# Clone both repositories
+git clone https://github.com/[your-username]/langmanus.git
+cd langmanus
 
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-
-# Step 2: Install project dependencies
+# Install dependencies
 uv sync
-```
 
-By completing these steps, you'll ensure your environment is properly configured and ready for development.
+# Playwright install to use Chromium for browser-use by default
+uv run playwright install
+
+# Configure environment
+cp .env.example .env
+# Edit .env with your API keys
+```
 
 ### Configuration
 
-LangManus uses a three-tier LLM system with separate configurations for reasoning, basic tasks, and vision-language tasks. Create a `.env` file in the project root and configure the following environment variables:
+This personalized version uses the following environment variables:
 
 ```ini
-# Reasoning LLM Configuration (for complex reasoning tasks)
-REASONING_MODEL=your_reasoning_model
-REASONING_API_KEY=your_reasoning_api_key
-REASONING_BASE_URL=your_custom_base_url  # Optional
+# LM Studio Configuration for local inference
+REASONING_API_KEY=your_api_key
+REASONING_BASE_URL=http://localhost:1234/v1
+REASONING_MODEL=openai/deepseek-r1:7b
 
-# Basic LLM Configuration (for simpler tasks)
-BASIC_MODEL=your_basic_model
-BASIC_API_KEY=your_basic_api_key
-BASIC_BASE_URL=your_custom_base_url  # Optional
+BASIC_API_KEY=your_api_key
+BASIC_BASE_URL=http://localhost:1234/v1
+BASIC_MODEL=openai/deepseek-r1:7b
 
-# Vision-Language LLM Configuration (for tasks involving images)
-VL_MODEL=your_vl_model
-VL_API_KEY=your_vl_api_key
-VL_BASE_URL=your_custom_base_url  # Optional
+VL_API_KEY=your_api_key
+VL_BASE_URL=http://localhost:1234/v1
+VL_MODEL=openai/deepseek-r1:7b
 
-# Tool API Keys
-TAVILY_API_KEY=your_tavily_api_key
-JINA_API_KEY=your_jina_api_key  # Optional
-
-# Browser Configuration
-CHROME_INSTANCE_PATH=/Applications/Google Chrome.app/Contents/MacOS/Google Chrome  # Optional, path to Chrome executable
-CHROME_HEADLESS=False  # Optional, default is False
-CHROME_PROXY_SERVER=http://127.0.0.1:10809  # Optional, default is None
-CHROME_PROXY_USERNAME=  # Optional, default is None
-CHROME_PROXY_PASSWORD=  # Optional, default is None
+# Brave Search API Key (required)
+BRAVE_API_KEY=your_brave_search_api_key
 ```
 
-In addition to supporting LLMs compatible with OpenAI, LangManus also supports Azure LLMs. The configuration method is as follows:
+### Usage
 
-```ini
-# AZURE LLM Config
-AZURE_API_BASE=https://xxxx
-AZURE_API_KEY=xxxxx
-AZURE_API_VERSION=2023-07-01-preview
-
-# Reasoning LLM (for complex reasoning tasks)
-REASONING_AZURE_DEPLOYMENT=xxx
-
-# Non-reasoning LLM (for straightforward tasks)
-BASIC_AZURE_DEPLOYMENT=gpt-4o-2024-08-06
-
-# Vision-language LLM (for tasks requiring visual understanding)
-VL_AZURE_DEPLOYMENT=gpt-4o-2024-08-06
-```
-
-> **Note:**
->
-> - The system uses different models for different types of tasks:
->     - Reasoning LLM for complex decision-making and analysis
->     - Basic LLM for simpler text-based tasks
->     - Vision-Language LLM for tasks involving image understanding
-> - You can customize the base URLs for all LLMs independently, and you can use LiteLLM's board LLM support by following [this guide](https://docs.litellm.ai/docs/providers).
-> - Each LLM can use different API keys if needed
-> - Jina API key is optional. Provide your own key to access a higher rate limit (get your API key at [jina.ai](https://jina.ai/))
-> - Tavily API key is **required**. Tavily search is configured to return a maximum of 5 results by default (get your API key at [app.tavily.com](https://app.tavily.com/))
-
-You can copy the `.env.example` file as a template to get started:
+First, ensure LM Studio is running with the appropriate models loaded. Then:
 
 ```bash
-cp .env.example .env
-```
-
-### Configure Pre-commit Hook
-
-LangManus includes a pre-commit hook that runs linting and formatting checks before each commit. To set it up:
-
-1. Make the pre-commit script executable:
-
-```bash
-chmod +x pre-commit
-```
-
-2. Install the pre-commit hook:
-
-```bash
-ln -s ../../pre-commit .git/hooks/pre-commit
-```
-
-The pre-commit hook will automatically:
-
-- Run linting checks (`make lint`)
-- Run code formatting (`make format`)
-- Add any reformatted files back to staging
-- Prevent commits if there are any linting or formatting errors
-
-## Usage
-
-### Basic Execution
-
-To run LangManus with default settings:
-
-```bash
+# Run the personalized AI system
 uv run main.py
 ```
 
-### API Server
-
-LangManus provides a FastAPI-based API server with streaming support:
+For the API server with streaming support:
 
 ```bash
 # Start the API server
-make serve
-
-# Or run directly
 uv run server.py
 ```
 
-The API server exposes the following endpoints:
+## Advanced Configuration
 
-- `POST /api/chat/stream`: Chat endpoint for LangGraph invoke with streaming support
-    - Request body:
-  ```json
-  {
-    "messages": [{ "role": "user", "content": "Your query here" }],
-    "debug": false
-  }
-  ```
-    - Returns a Server-Sent Events (SSE) stream with the agent's responses
+### Memory System Configuration
 
-### Advanced Configuration
+The simple memory system is automatically integrated and will store memories in the simple memory system repository. You can customize the memory system by modifying the `src/integration/memory.py` file.
 
-LangManus can be customized through various configuration files in the `src/config` directory:
+### Search Configuration
 
-- `env.py`: Configure LLM models, API keys, and base URLs
-- `tools.py`: Adjust tool-specific settings (e.g., Tavily search results limit)
-- `agents.py`: Modify team composition and agent system prompts
+This version uses Brave Search exclusively. You can adjust the number of search results in `src/config/tools.py`:
 
-### Agent Prompts System
+```python
+# Brave Search configuration
+BRAVE_MAX_RESULTS = 5  # Adjust as needed
+```
 
-LangManus uses a sophisticated prompting system in the `src/prompts` directory to define agent behaviors and responsibilities:
+### Agent Prompts
 
-#### Core Agent Roles
+The agent prompts have been updated to be aware of the memory system:
 
-- **Supervisor ([`src/prompts/supervisor.md`](src/prompts/supervisor.md))**: Coordinates the team and delegates tasks by analyzing requests and determining which specialist should handle them. Makes decisions about task completion and workflow transitions.
-
-- **Researcher ([`src/prompts/researcher.md`](src/prompts/researcher.md))**: Specializes in information gathering through web searches and data collection. Uses Tavily search and web crawling capabilities while avoiding mathematical computations or file operations.
-
-- **Coder ([`src/prompts/coder.md`](src/prompts/coder.md))**: Professional software engineer role focused on Python and bash scripting. Handles:
-
-    - Python code execution and analysis
-    - Shell command execution
-    - Technical problem-solving and implementation
-
-- **File Manager ([`src/prompts/file_manager.md`](src/prompts/file_manager.md))**: Handles all file system operations with a focus on properly formatting and saving content in markdown format.
-
-- **Browser ([`src/prompts/browser.md`](src/prompts/browser.md))**: Web interaction specialist that handles:
-    - Website navigation
-    - Page interaction (clicking, typing, scrolling)
-    - Content extraction from web pages
-
-#### Prompt System Architecture
-
-The prompts system uses a template engine ([`src/prompts/template.py`](src/prompts/template.py)) that:
-
-- Loads role-specific markdown templates
-- Handles variable substitution (e.g., current time, team member information)
-- Formats system prompts for each agent
-
-Each agent's prompt is defined in a separate markdown file, making it easy to modify behavior and responsibilities without changing the underlying code.
+- **Researcher** (`src/prompts/researcher.md`): Retrieves relevant memories before searching
+- **Reporter** (`src/prompts/reporter.md`): Stores important information in the memory system
 
 ## Docker
 
@@ -414,3 +348,73 @@ In particular, we want to express our deep appreciation for:
 - [Browser-use](https://pypi.org/project/browser-use/) for control browser
 
 These amazing projects form the foundation of LangManus and demonstrate the power of open source collaboration.
+
+## Memory System
+
+LangManus includes a simple but effective memory system that enables:
+
+1. **Context Persistence**: Maintain context between different sessions
+2. **Knowledge Retention**: Store important discoveries or insights for future reference
+3. **Pattern Recognition**: Recognize patterns in your interactions over time
+
+### Memory Tools
+
+LangManus includes specialized tools for memory interactions:
+
+- `memory_store_tool`: Allows the Reporter agent to store important findings in memory
+- `memory_retrieve_tool`: Enables the Researcher agent to access relevant memories
+
+- `SimpleMemory` class: Core memory system that provides storage and retrieval functionality
+
+## Advanced Features
+
+The memory system in LangManus provides several advanced capabilities:
+
+1. **Session Persistence**: Information from your conversations is maintained between sessions
+2. **Keyword-Based Retrieval**: Find relevant memories based on keyword matching
+3. **Tag-Based Organization**: Organize memories with customizable tags
+
+By integrating this memory system with LangManus, we create a powerful system that:
+
+1. Remembers past interactions and builds on them
+2. Provides continuity between different sessions
+3. Learns your preferences and patterns over time
+4. Reduces repetitive explanations by maintaining context
+
+## Acknowledgments
+
+LangManus is built on the shoulders of giants. We'd like to thank:
+
+- The [LangChain](https://github.com/langchain-ai/langchain) team for their incredible work
+- [LM Studio](https://lmstudio.ai/) for providing local LLM inference
+- The authors and maintainers of the Mistral-7B model
+- All the contributors to this project
+
+## LM Studio Integration
+
+For detailed instructions on using LangManus with LM Studio for local LLM deployment, see:
+[LM Studio Integration Guide](README_LM_STUDIO.md)
+
+## System Diagnostics
+
+Run comprehensive system checks to ensure all components are functioning:
+
+```
+python main.py --diagnostics
+```
+
+The diagnostics feature checks:
+- LM Studio connectivity and available models
+- Required environment variables
+- Memory system availability
+- RLHF (feedback) system availability
+
+## Development
+
+LangManus is designed with modularity in mind. The core components are:
+
+- `src/graph`: Workflow definition and orchestration
+- `src/llms`: LLM provider integrations
+- `src/tools`: Tool implementations
+- `src/integration`: Memory and feedback systems
+- `src/utils`: Utility functions

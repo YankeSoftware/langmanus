@@ -3,6 +3,9 @@ from langchain_deepseek import ChatDeepSeek
 from src.llms.litellm_v2 import ChatLiteLLMV2 as ChatLiteLLM
 from typing import Optional
 from litellm import LlmProviders
+import logging
+import re
+import os
 
 from src.config import (
     REASONING_MODEL,
@@ -23,6 +26,41 @@ from src.config import (
 )
 from src.config.agents import LLMType
 
+logger = logging.getLogger(__name__)
+
+def is_lm_studio_url(base_url: Optional[str]) -> bool:
+    """
+    Check if the base URL is for LM Studio.
+    LM Studio typically runs on localhost with port 1234 or has 'lmstudio' in the URL.
+    """
+    if not base_url:
+        return False
+    
+    # Convert to lowercase for case-insensitive matching
+    base_url_lower = base_url.lower()
+    
+    # Check for explicit lmstudio indicators
+    if 'lmstudio' in base_url_lower:
+        logger.info(f"Detected LM Studio in URL: {base_url}")
+        return True
+    
+    # Check for localhost or 127.0.0.1 with typical LM Studio ports
+    localhost_pattern = r'https?://(localhost|127\.0\.0\.1)(:\d+)?(/v1)?/?$'
+    if re.match(localhost_pattern, base_url_lower):
+        # Common ports used by LM Studio and similar local inference servers
+        common_ports = ['1234', '8000', '5000', '3000', '8080']
+        
+        # If no port specified, assume it might be LM Studio
+        if ':' not in base_url_lower or any(f":{port}" in base_url_lower for port in common_ports):
+            logger.info(f"Detected potential local LM Studio server at {base_url}")
+            return True
+    
+    # Check for environment variable that might indicate LM Studio usage
+    if os.environ.get('USE_LM_STUDIO', '').lower() in ('true', '1', 'yes'):
+        logger.info(f"LM Studio mode enabled by environment variable")
+        return True
+    
+    return False
 
 def create_openai_llm(
     model: str,
@@ -87,7 +125,7 @@ def create_azure_llm(
     )
 
 
-def create_litellm_model(
+def create_litellm(
     model: str,
     base_url: Optional[str] = None,
     api_key: Optional[str] = None,
@@ -95,9 +133,10 @@ def create_litellm_model(
     **kwargs,
 ) -> ChatLiteLLM:
     """
-    Support various different model's through LiteLLM's capabilities.
+    Create a ChatLiteLLM instance with the specified configuration.
+    Will use the enhanced ChatLiteLLMV2 for LM Studio compatibility.
     """
-
+    # Only include base_url in the arguments if it's not None or empty
     llm_kwargs = {"model": model, "temperature": temperature, **kwargs}
 
     if base_url:  # This will handle None or empty string
@@ -105,8 +144,14 @@ def create_litellm_model(
 
     if api_key:  # This will handle None or empty string
         llm_kwargs["api_key"] = api_key
-
-    return ChatLiteLLM(**llm_kwargs)
+    
+    # Detect LM Studio and use enhanced class
+    if is_lm_studio_url(base_url):
+        logger.info(f"Using enhanced ChatLiteLLMV2 for LM Studio with model {model}")
+        return ChatLiteLLMV2(**llm_kwargs)
+    
+    # For other cases, also use our enhanced version as it's backward compatible
+    return ChatLiteLLMV2(**llm_kwargs)
 
 
 # Cache for LLM instances
@@ -150,7 +195,7 @@ def get_llm_by_type(
                 api_key=AZURE_API_KEY,
             )
         elif is_litellm_model(REASONING_MODEL):
-            llm = create_litellm_model(
+            llm = create_litellm(
                 model=REASONING_MODEL,
                 base_url=REASONING_BASE_URL,
                 api_key=REASONING_API_KEY,
@@ -170,7 +215,7 @@ def get_llm_by_type(
                 api_key=AZURE_API_KEY,
             )
         elif is_litellm_model(BASIC_MODEL):
-            llm = create_litellm_model(
+            llm = create_litellm(
                 model=BASIC_MODEL,
                 base_url=BASIC_BASE_URL,
                 api_key=BASIC_API_KEY,
@@ -190,7 +235,7 @@ def get_llm_by_type(
                 api_key=AZURE_API_KEY,
             )
         elif is_litellm_model(VL_MODEL):
-            llm = create_litellm_model(
+            llm = create_litellm(
                 model=VL_MODEL,
                 base_url=VL_BASE_URL,
                 api_key=VL_API_KEY,
