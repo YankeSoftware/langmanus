@@ -1,10 +1,8 @@
 import logging
 import traceback
-import os
-import sys
-import requests
 from src.config import TEAM_MEMBERS
-from typing import Dict, Union, List, Any, Optional, Tuple, cast
+import os
+from typing import Dict, Union, List, Any
 from src.utils.message_utils import normalize_message, normalize_messages
 
 # Configure logging
@@ -27,54 +25,88 @@ logger = logging.getLogger(__name__)
 # Instead, create it lazily in each function that needs it
 
 
-def run_agent_workflow(user_input: str, debug: bool = False) -> Dict:
-    """Run the agent workflow with the given user input."""
-    # Set up debug logging if requested
+def run_agent_workflow(user_input: str, debug: bool = False):
+    """Run the agent workflow with the given user input.
+
+    Args:
+        user_input: The user's query or request
+        debug: If True, enables debug level logging
+
+    Returns:
+        The final state after the workflow completes
+    """
+    if not user_input or not user_input.strip():
+        raise ValueError("User input cannot be empty")
+
     if debug:
         enable_debug_logging()
-        
+        logger.debug("Debug logging enabled")
+
     logger.info(f"Starting workflow with user input: {user_input}")
     
-    # Initialize the agent graph and get search tools
-    search_tool = get_search_tool()
-    logger.debug(f"Search tool: {search_tool}")
-    if search_tool is None:
-        logger.error("No search tool available - check Brave or Tavily API keys")
-        raise RuntimeError(
-            "No search tool is available. Please check that either BRAVE_API_KEY "
-            "or TAVILY_API_KEY environment variables are set correctly."
-        )
-    
-    # Create initial state
-    state = initial_state(user_input)
-    
-    # Create agent graph
-    builder = workflow_builder()
-    graph = builder.compile()
-    
-    # Track the token count to avoid context overflows
-    max_tokens = 3500  # Safe limit for Mistral 7B model (4096 max)
-    
     try:
-        # Run the workflow
-        result = graph.invoke(state)
+        # Import graph builder here to avoid circular imports
+        from src.graph import build_graph
+        graph = build_graph()
         
-        # Check final message count and prune if needed
-        if "messages" in result and len(result["messages"]) > 15:
-            logger.warning(f"Message count ({len(result['messages'])}) exceeds safe limit, pruning...")
-            
-            # Keep first (user query) and last N messages for coherence
-            pruned_messages = [result["messages"][0]]  # Keep the user query
-            pruned_messages.extend(result["messages"][-10:])  # Keep the last 10 messages
-            
-            # Update result with pruned messages
-            result["messages"] = pruned_messages
-            logger.info(f"Pruned message count to {len(result['messages'])}")
+        # Prepare the initial state
+        initial_state = {
+            # Constants
+            "TEAM_MEMBERS": TEAM_MEMBERS,
+            # Runtime Variables
+            "messages": [{"role": "user", "content": user_input}],
+            "deep_thinking_mode": True,
+            "search_before_planning": True,
+            # Initialize empty state fields
+            "actions": "",
+            "plan": "",
+            "tasks": ""
+        }
         
+        logger.debug(f"Initial state: {initial_state}")
+        
+        # Run the workflow with the user input
+        result = graph.invoke(initial_state)
+        logger.debug(f"Final workflow state: {result}")
+        logger.info("Workflow completed successfully")
         return result
+        
     except Exception as e:
-        logger.exception(f"Error running workflow: {e}")
-        raise
+        logger.exception("Workflow execution failed")
+        error_msg = str(e)
+        traceback_text = traceback.format_exc()
+        logger.debug(f"Error traceback: {traceback_text}")
+        
+        # Handle common LM Studio errors with more helpful messages
+        if "Only user and assistant roles are supported" in error_msg:
+            logger.error("LM Studio compatibility error: Only user and assistant roles are supported")
+            raise RuntimeError(
+                "LM Studio requires 'user' and 'assistant' roles only. "
+                "This may be a message format issue. Check that all messages sent to the model "
+                "use only these two roles."
+            )
+        elif "response_format.type" in error_msg:
+            logger.error("LM Studio JSON format error")
+            raise RuntimeError(
+                f"LM Studio has different JSON formatting requirements. "
+                f"This should be fixed with our custom LiteLLM adapter. "
+                f"If you see this error, please report it."
+            )
+        elif "OpenAI API" in error_msg or "status code: 400" in error_msg or "status code: 404" in error_msg:
+            logger.error("LM Studio API communication error")
+            raise RuntimeError(
+                f"Error communicating with LM Studio API. Please ensure:\n"
+                f"1. LM Studio is running with Mistral-7B-Instruct-v0.3 or compatible model\n"
+                f"2. The API is accessible at http://localhost:1234/v1\n"
+                f"3. In LM Studio settings, OpenAI API option is enabled\n"
+                f"Error details: {error_msg}"
+            )
+        else:
+            # Create a more informative error message for other errors
+            raise RuntimeError(
+                f"Workflow failed with error: {error_msg}\n"
+                f"Check the logs for more details."
+            ) from e
 
 
 def diagnose_environment(verbose: bool = False) -> Dict[str, bool]:
@@ -91,6 +123,7 @@ def diagnose_environment(verbose: bool = False) -> Dict[str, bool]:
     
     # Check LM Studio connection
     try:
+        import requests
         response = requests.get("http://localhost:1234/v1/models", timeout=2)
         results["lm_studio"] = response.status_code == 200
         if verbose:
@@ -158,42 +191,6 @@ def diagnose_environment(verbose: bool = False) -> Dict[str, bool]:
             logger.error(f"❌ RLHF System: Error - {str(e)}")
     
     return results
-
-
-def initial_state(user_input: str) -> Dict:
-    """Create the initial state for the workflow."""
-    if not user_input or not user_input.strip():
-        raise ValueError("User input cannot be empty")
-        
-    # Prepare the initial state
-    initial_state = {
-        # Constants
-        "TEAM_MEMBERS": TEAM_MEMBERS,
-        # Runtime Variables
-        "messages": [{"role": "user", "content": user_input}],
-        "deep_thinking_mode": True,
-        "search_before_planning": True,
-        # Initialize empty state fields
-        "actions": "",
-        "plan": "",
-        "tasks": ""
-    }
-    
-    logger.debug(f"Initial state: {initial_state}")
-    return initial_state
-
-
-def workflow_builder():
-    """Create and return the workflow builder."""
-    # Import graph builder here to avoid circular imports
-    from src.graph import build_graph
-    return build_graph()
-
-
-def get_search_tool():
-    """Get the appropriate search tool based on available integrations."""
-    from src.tools.search import default_search_tool
-    return default_search_tool
 
 
 if __name__ == "__main__":

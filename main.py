@@ -11,7 +11,7 @@ from src.workflow import (
     enable_debug_logging, 
     diagnose_environment
 )
-from src.utils.message_utils import normalize_message, normalize_messages, extract_content, clean_content_for_display
+from src.utils.message_utils import normalize_message, normalize_messages
 from src.integration import memory
 from src.integration import feedback
 
@@ -149,45 +149,20 @@ if __name__ == "__main__":
         
         # Format the conversation history in a readable way 
         if "messages" in result and result["messages"]:
-            # Track what content we've already displayed to avoid duplicates
-            displayed_content = set()
-            
-            # Display only user messages and final responses
             for message in result["messages"]:
                 # Convert to standard format
                 normalized = normalize_message(message)
                 
-                # Clean content for display
-                content = clean_content_for_display(normalized['content'])
-                
-                # Skip empty content
-                if not content.strip():
-                    continue
-                    
-                # Skip duplicate content
-                content_hash = hash(content)
-                if content_hash in displayed_content:
-                    continue
-                    
-                displayed_content.add(content_hash)
-                
-                # Display the message
                 if normalized["role"] == "user":
-                    print(f"\n🧑 User: {content}")
+                    print(f"\n🧑 User: {normalized['content']}")
                 else:
-                    # Only display assistant messages that don't contain supervisor routing info
-                    if not content.startswith("Next:") and not content.startswith("[SUPERVISOR]"):
-                        print(f"\n🤖 Assistant: {content}")
+                    print(f"\n🤖 Assistant: {normalized['content']}")
         
         # Get feedback from the user
         if result.get("messages") and len(result["messages"]) > 0:
             last_message = result["messages"][-1]
             normalized = normalize_message(last_message)
-            
-            # Clean content for feedback
-            content = clean_content_for_display(normalized['content'])
-            
-            get_user_feedback(user_query, content)
+            get_user_feedback(user_query, normalized["content"])
             
     except ValueError as e:
         logger.error(f"Value error: {e}")

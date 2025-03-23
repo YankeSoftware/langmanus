@@ -11,7 +11,6 @@ from .nodes import (
 )
 from src.config import TEAM_MEMBERS
 import logging
-from typing import Dict
 
 logger = logging.getLogger(__name__)
 
@@ -77,50 +76,35 @@ def build_graph():
     builder.add_edge(START, "coordinator")
     
     # Define the conditional edge from supervisor to other nodes
-    def route_supervisor_decision(state: Dict):
-        """Route the next action based on supervisor's decision."""
-        logger.debug("Determining next action from supervisor...")
-        
-        # Get the last message
-        if not state.get("messages") or len(state["messages"]) == 0:
-            logger.warning("No messages in state to determine routing. Defaulting to FINISH.")
+    def route_from_supervisor(state):
+        """Route to the next node based on supervisor's decision."""
+        # Initialize messages list if it doesn't exist
+        if "messages" not in state:
+            state["messages"] = []
+            logger.warning("Messages list was not initialized in state")
             return "__end__"
-        
-        last_msg = state["messages"][-1]
-        
-        # Try to extract routing from metadata first (preferred method)
-        if isinstance(last_msg, dict) and "metadata" in last_msg:
-            metadata = last_msg.get("metadata", {})
-            if metadata and "next" in metadata:
-                next_action = metadata["next"]
-                logger.info(f"Routing from supervisor to: {next_action}")
+            
+        # Get the last message with metadata
+        for msg in reversed(state.get("messages", [])):
+            if isinstance(msg, dict) and msg.get("metadata") and "next" in msg.get("metadata", {}):
+                next_node = msg["metadata"]["next"]
+                logger.info(f"Routing from supervisor to: {next_node}")
+                
                 # If FINISH is specified, end the workflow
-                if next_action == "FINISH":
+                if next_node == "FINISH":
                     return "__end__"
-                # Make sure next_action is lowercase to match node names
-                return next_action.lower()
-        
-        # As a fallback, look for routing in the content
-        if isinstance(last_msg, dict) and "content" in last_msg:
-            content = last_msg["content"]
-            if "Next: " in content:
-                parts = content.split("Next: ", 1)
-                next_part = parts[1].split("\n", 1)[0].strip()
-                logger.info(f"Extracted routing from content: {next_part}")
-                # If FINISH is specified, end the workflow
-                if next_part == "FINISH":
-                    return "__end__"
-                # Make sure next_part is lowercase to match node names
-                return next_part.lower()
-        
-        # If we couldn't find a clear routing decision, check for FINISH indicators
-        if isinstance(last_msg, dict) and "content" in last_msg:
-            content = last_msg["content"].lower()
-            if "error" in content or "finish" in content or "end" in content or "complete" in content:
-                logger.info("Detected FINISH indicators in message content")
+                
+                # Otherwise route to the specified team member (case-insensitive)
+                for valid_node in TEAM_MEMBERS:
+                    if valid_node.lower() == next_node.lower():
+                        return valid_node.lower()
+                
+                # If we get here, the next_node wasn't found in team members
+                logger.warning(f"Invalid routing target: {next_node}, ending workflow")
                 return "__end__"
-        
-        logger.warning("Could not determine routing decision. Defaulting to FINISH.")
+                
+        # Default to ending if no valid routing found
+        logger.warning("No valid routing found in supervisor output, ending workflow")
         return "__end__"
     
     # Add edges from each node to supervisor
@@ -134,7 +118,7 @@ def build_graph():
     # Add conditional edge from supervisor to other nodes
     builder.add_conditional_edges(
         "supervisor",
-        route_supervisor_decision,
+        route_from_supervisor,
         {
             "coordinator": "coordinator",
             "planner": "planner",
