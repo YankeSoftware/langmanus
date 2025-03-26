@@ -1,11 +1,159 @@
+import os
+import sys
+import json
 import logging
-from typing import Dict, List, Any, Optional
+from typing import Dict, Any, List, Optional
+from pathlib import Path
+import time
 from langchain.tools.base import BaseTool
 
 from src.integration import memory
 from .decorators import create_logged_tool
 
 logger = logging.getLogger(__name__)
+
+MEMORY_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "memory")
+
+def is_available() -> bool:
+    """Check if memory system is available and accessible."""
+    try:
+        if not os.path.exists(MEMORY_DIR):
+            os.makedirs(MEMORY_DIR, exist_ok=True)
+            logger.info(f"Created memory directory: {MEMORY_DIR}")
+        
+        # Quick write/read test to verify filesystem access
+        test_file = os.path.join(MEMORY_DIR, '.test_access')
+        with open(test_file, 'w') as f:
+            f.write('test')
+        os.remove(test_file)
+        
+        return True
+    except Exception as e:
+        logger.warning(f"Memory system unavailable: {str(e)}")
+        return False
+
+def save_to_memory(key: str, data: Any) -> bool:
+    """
+    Save data to memory with error handling.
+    
+    Args:
+        key: Unique identifier for the memory
+        data: Data to store (will be JSON serialized)
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        # Ensure directory exists
+        if not os.path.exists(MEMORY_DIR):
+            os.makedirs(MEMORY_DIR, exist_ok=True)
+        
+        # Create filename from key
+        safe_key = "".join(c if c.isalnum() else "_" for c in key)
+        filename = f"{safe_key}.json"
+        filepath = os.path.join(MEMORY_DIR, filename)
+        
+        # Add timestamp for versioning
+        if isinstance(data, dict):
+            data = data.copy()  # Make a copy to avoid modifying the original
+            data["_timestamp"] = time.time()
+            data["_created"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Write data to file
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+            
+        logger.debug(f"Saved memory: {key}")
+        return True
+    except Exception as e:
+        logger.error(f"Error saving to memory: {str(e)}")
+        return False
+
+def load_from_memory(key: str) -> Optional[Any]:
+    """
+    Load data from memory with error handling.
+    
+    Args:
+        key: Unique identifier for the memory
+        
+    Returns:
+        Loaded data or None if not found or error
+    """
+    try:
+        # Create filename from key
+        safe_key = "".join(c if c.isalnum() else "_" for c in key)
+        filename = f"{safe_key}.json"
+        filepath = os.path.join(MEMORY_DIR, filename)
+        
+        if not os.path.exists(filepath):
+            logger.debug(f"Memory not found: {key}")
+            return None
+            
+        # Read data from file
+        with open(filepath, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            
+        logger.debug(f"Loaded memory: {key}")
+        return data
+    except json.JSONDecodeError as e:
+        logger.error(f"Error decoding memory file for {key}: {str(e)}")
+        return None
+    except Exception as e:
+        logger.error(f"Error loading from memory: {str(e)}")
+        return None
+
+def list_memories() -> List[str]:
+    """
+    List all available memories with error handling.
+    
+    Returns:
+        List of memory keys
+    """
+    try:
+        if not os.path.exists(MEMORY_DIR):
+            return []
+            
+        # Get all JSON files in the memory directory
+        memory_files = [f for f in os.listdir(MEMORY_DIR) if f.endswith('.json')]
+        
+        # Convert filenames back to keys
+        keys = [os.path.splitext(f)[0] for f in memory_files]
+        
+        # Remove any temporary files
+        keys = [k for k in keys if not k.startswith('.')]
+        
+        return keys
+    except Exception as e:
+        logger.error(f"Error listing memories: {str(e)}")
+        return []
+
+def clear_memory(key: str) -> bool:
+    """
+    Delete a specific memory with error handling.
+    
+    Args:
+        key: Unique identifier for the memory
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        # Create filename from key
+        safe_key = "".join(c if c.isalnum() else "_" for c in key)
+        filename = f"{safe_key}.json"
+        filepath = os.path.join(MEMORY_DIR, filename)
+        
+        if not os.path.exists(filepath):
+            logger.debug(f"Memory not found: {key}")
+            return False
+            
+        # Delete file
+        os.remove(filepath)
+        logger.debug(f"Cleared memory: {key}")
+        return True
+    except Exception as e:
+        logger.error(f"Error clearing memory: {str(e)}")
+        return False
 
 class MemoryStoreTool(BaseTool):
     """Tool for storing information in the memory system."""

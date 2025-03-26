@@ -1,0 +1,127 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+
+# Human-in-the-Loop (HITL)
+- Always implement HITL feedback checkpoints in workflow-critical functions
+- Include user approval mechanisms for all major planning stages
+- Properly track contributions from each agent for user review
+- Implement graceful handling of user feedback and corrections
+- Provide clear notifications when HITL input is required
+- Store and utilize human feedback for future improvements
+- Make all HITL approval settings configurable via environment variables
+- Implement user-friendly interfaces for reviewing agent outputs
+- Allow partial approvals of multi-step plans
+- Include status indicators for awaiting human input
+
+# Model API Compatibility
+- Ensure all API endpoints support both OpenAI and LM Studio formats
+- Check for environment variables before accessing API keys
+- Provide clear error messages for missing API configuration
+- Include fallback mechanisms when specific API services are unavailable
+- Support graceful degradation when token limits are exceeded
+- Implement rate limiting and retry logic for API calls
+- Use appropriate temperature settings for different agent roles
+- Implement proper error handling for network failures during API calls
+- Configure model-specific prompt formatting
+- Handle context window limitations appropriately
+- Support streaming responses where appropriate
+
+# Multi-Agent Coordination
+- Implement clear role separation and responsibilities between agent types
+- Design explicit transition conditions between agent nodes in the workflow graph
+- Ensure consistent message passing and context preservation between agents
+- Implement logging for all inter-agent communications
+- Design deadlock detection and resolution mechanisms in the agent workflow
+- Implement progress tracking and timeout mechanisms
+- Use standardized formats for sharing data between agents
+- Implement agent memory to avoid redundant operations
+- Implement supervisor oversight for conflict resolution
+- Design fallback paths in the workflow graph
+- Allow dynamic agent selection based on task requirements
+
+# Code Quality and Documentation
+- Follow consistent naming conventions across the codebase
+- Document all public functions, classes, and modules
+- Write comprehensive error handling throughout the codebase
+- Use type hints for all function parameters and return values
+- Include examples in documentation for complex functionality
+- Maintain a changelog for tracking major updates
+- Document configuration options with examples
+- Implement consistent code formatting using tools like Black
+- Use meaningful variable and function names
+- Include inline comments for complex logic
+
+# Error Handling and Resilience
+- Use appropriate exception hierarchies for different error types
+- Implement graceful failure modes for all components
+- Log detailed error information without exposing sensitive data
+- Provide user-friendly error messages
+- Implement automatic recovery mechanisms where possible
+- Handle timeouts appropriately in network operations
+- Include circuit breakers for external service dependencies
+- Validate all user inputs and API responses
+- Implement retry mechanisms with exponential backoff
+- Design for eventual consistency in distributed operations
+
+# Testing and Validation
+- Write unit tests for all core functionality
+- Implement integration tests for multi-agent workflows
+- Test with a variety of user inputs and query types
+- Validate HITL interfaces with usability testing
+- Test with different LLM providers for compatibility
+- Implement regression tests for fixed bugs
+- Test error handling paths explicitly
+- Use continuous integration for automated testing
+- Implement performance benchmarks
+- Test for resilience under load and with network disruptions
+
+# Performance Optimization
+- Implement caching for repetitive operations
+- Optimize prompt lengths to reduce token usage
+- Use asynchronous processing for non-blocking operations
+- Implement batching for multiple similar API calls
+- Monitor and optimize memory usage
+- Implement pagination for large datasets
+- Use efficient data structures for frequent operations
+- Optimize file I/O operations
+- Implement lazy loading where appropriate
+- Use connection pooling for database operations
+
+# Security Considerations
+- Store API keys securely using environment variables
+- Implement proper authentication for all endpoints
+- Sanitize all user inputs before processing
+- Avoid storing sensitive information in logs
+- Implement rate limiting for public endpoints
+- Use secure communication protocols
+- Follow the principle of least privilege for all operations
+- Audit sensitive operations
+- Implement secure defaults for all configurations
+- Regularly update dependencies to patch vulnerabilities
+
+# Configuration Management
+- Use centralized configuration management
+- Support environment-specific configurations
+- Document all configuration options
+- Validate configuration values at startup
+- Implement sensible defaults for all settings
+- Support dynamic configuration updates where possible
+- Separate sensitive configuration from code
+- Use hierarchical configuration structures
+- Support configuration through environment variables
+- Provide configuration validation tools
+
+# Logging and Monitoring
+- Implement structured logging throughout the application
+- Use appropriate log levels for different messages
+- Include context information in log messages
+- Implement logging for all agent interactions
+- Monitor API usage and rate limits
+- Track performance metrics for optimization
+- Implement alerts for critical failures
+- Log all HITL interactions
+- Retain logs for troubleshooting and auditing
+- Implement log rotation to manage storage

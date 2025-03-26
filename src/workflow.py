@@ -25,12 +25,14 @@ logger = logging.getLogger(__name__)
 # Instead, create it lazily in each function that needs it
 
 
-def run_agent_workflow(user_input: str, debug: bool = False):
+def run_agent_workflow(user_input: str, debug: bool = False, enable_hitl: bool = True, api_config: Dict[str, Any] = None):
     """Run the agent workflow with the given user input.
 
     Args:
         user_input: The user's query or request
         debug: If True, enables debug level logging
+        enable_hitl: If True, enables Human in the Loop capabilities
+        api_config: Configuration for API providers (LM Studio, OpenAI, etc.)
 
     Returns:
         The final state after the workflow completes
@@ -57,6 +59,12 @@ def run_agent_workflow(user_input: str, debug: bool = False):
             "messages": [{"role": "user", "content": user_input}],
             "deep_thinking_mode": True,
             "search_before_planning": True,
+            # Enable HITL
+            "hitl_enabled": enable_hitl,
+            "hitl_approved": False,
+            "hitl_feedback": "",
+            # API Configuration
+            "api_config": api_config or {},
             # Initialize empty state fields
             "actions": "",
             "plan": "",
@@ -64,6 +72,39 @@ def run_agent_workflow(user_input: str, debug: bool = False):
         }
         
         logger.debug(f"Initial state: {initial_state}")
+        
+        # If HITL is enabled, get the initial plan and approval
+        if enable_hitl:
+            try:
+                # First, generate initial plan with research and planning
+                logger.info("Generating initial plan for HITL approval...")
+                
+                # Run initial research if configured
+                if initial_state.get("search_before_planning", True):
+                    from src.agents.researcher import research_node
+                    research_result = research_node(initial_state["messages"], initial_state, {})
+                    initial_state.update(research_result.get("metadata", {}))
+                    initial_state["messages"].append({"role": "assistant", "content": research_result["content"]})
+                
+                # Generate the plan
+                from src.agents.planner import planner_node
+                plan_result = planner_node(initial_state["messages"], initial_state, {})
+                initial_state.update(plan_result.get("metadata", {}))
+                initial_state["messages"].append({"role": "assistant", "content": plan_result["content"]})
+                
+                # Now get human approval
+                hitl_approved = get_human_approval(initial_state)
+                initial_state["hitl_approved"] = hitl_approved
+                
+                if not hitl_approved:
+                    logger.info("User rejected initial plan - workflow aborted")
+                    return initial_state
+                
+                logger.info("User approved initial plan - continuing workflow")
+                
+            except Exception as hitl_error:
+                logger.warning(f"Error in HITL flow: {str(hitl_error)}. Proceeding without HITL.")
+                initial_state["hitl_approved"] = True  # Proceed anyway
         
         # Run the workflow with the user input
         result = graph.invoke(initial_state)
@@ -107,6 +148,132 @@ def run_agent_workflow(user_input: str, debug: bool = False):
                 f"Workflow failed with error: {error_msg}\n"
                 f"Check the logs for more details."
             ) from e
+
+
+def get_human_approval(state: Dict[str, Any]) -> bool:
+    """
+    Get human approval for the initial plan.
+    
+    Args:
+        state: Current state with plan and messages
+        
+    Returns:
+        Boolean indicating if the plan was approved
+    """
+    try:
+        print("\n===== HUMAN IN THE LOOP - INITIAL PLAN =====")
+        print("The system has generated an initial plan for your query.")
+        print("Please review the plan and decide if you want to proceed.")
+        
+        # Extract the plan from the messages (safely)
+        plan_message = None
+        messages = state.get("messages", [])
+        
+        if not messages:
+            print("No plan available for review. Proceeding with default approach.")
+            return True
+            
+        # Try to find a plan message
+        for msg in reversed(messages):
+            try:
+                normalized = normalize_message(msg)
+                if normalized["role"] == "assistant" and "plan" in normalized.get("content", "").lower():
+                    plan_message = normalized["content"]
+                    break
+            except Exception as e:
+                logger.warning(f"Error normalizing message: {str(e)}")
+                continue
+        
+        if not plan_message:
+            # If no plan found, use the last assistant message
+            for msg in reversed(messages):
+                try:
+                    normalized = normalize_message(msg)
+                    if normalized["role"] == "assistant":
+                        plan_message = normalized["content"]
+                        break
+                except Exception as e:
+                    logger.warning(f"Error finding assistant message: {str(e)}")
+                    continue
+        
+        # Show the plan with better formatting
+        if plan_message:
+            print("\n----- PROPOSED APPROACH -----")
+            print(plan_message)
+            
+            # Display contributing agents for transparency
+            contributing_agents = state.get("contributing_agents", [])
+            if contributing_agents:
+                print("\n----- CONTRIBUTING AGENTS -----")
+                for agent in contributing_agents:
+                    print(f"- {agent}")
+        else:
+            print("\n----- NO DETAILED PLAN AVAILABLE -----")
+            print("The system will proceed with a general approach based on your query.")
+        
+        # Status indicator
+        print("\n[WAITING FOR HUMAN INPUT]")
+        
+        # Get approval with enhanced options and error handling
+        max_attempts = 3
+        for attempt in range(max_attempts):
+            try:
+                approval = input("\nDo you want to proceed with this plan? (y/n/modify/details): ").strip().lower()
+                
+                if approval in ['y', 'yes']:
+                    # Store user approval in state for tracking
+                    state["hitl_approvals"] = state.get("hitl_approvals", []) + ["plan_approved"]
+                    return True
+                    
+                elif approval in ['n', 'no']:
+                    # Store user rejection in state for tracking
+                    state["hitl_rejections"] = state.get("hitl_rejections", []) + ["plan_rejected"]
+                    return False
+                    
+                elif approval in ['m', 'modify']:
+                    try:
+                        feedback = input("Please provide your feedback or modifications:\n").strip()
+                        state["hitl_feedback"] = feedback
+                        # Track the feedback for future improvements
+                        state["hitl_modifications"] = state.get("hitl_modifications", []) + [feedback]
+                        state["messages"].append({"role": "user", "content": f"PLAN FEEDBACK: {feedback}"})
+                        return True
+                    except Exception as input_error:
+                        logger.error(f"Error getting feedback input: {str(input_error)}")
+                        print("Could not process your feedback. Proceeding with original plan.")
+                        return True
+                        
+                elif approval in ['d', 'details']:
+                    print("\n----- DETAILED PLAN INFORMATION -----")
+                    print("This plan will be executed by the following agents in sequence:")
+                    print("1. Planner: Creates the detailed execution strategy")
+                    print("2. Other specialists based on the task requirements")
+                    print("\nYou can modify specific aspects of the plan or reject it entirely.")
+                    # Continue to next iteration for user input
+                    
+                else:
+                    print("Please enter 'y' for yes, 'n' for no, 'm' to modify, or 'd' for details.")
+                    # Continue to next iteration for user input
+                    
+            except KeyboardInterrupt:
+                print("\nOperation cancelled by user. Aborting.")
+                return False
+                
+            except Exception as e:
+                logger.error(f"Error in approval input (attempt {attempt+1}/{max_attempts}): {str(e)}")
+                if attempt == max_attempts - 1:
+                    print("\nToo many input errors. Proceeding with default plan.")
+                    return True
+                print("Invalid input. Please try again.")
+        
+        # Default approval if loop completes without return
+        print("No valid input received. Proceeding with default plan.")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error in get_human_approval: {str(e)}")
+        print("\nError getting approval. Proceeding with default plan.")
+        return True
 
 
 def diagnose_environment(verbose: bool = False) -> Dict[str, bool]:

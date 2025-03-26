@@ -66,12 +66,38 @@ def create_agent_message(agent_name: str, content: str, metadata: Optional[Dict[
     Returns:
         A properly formatted message dictionary
     """
-    # Format consistently for both LangChain and LM Studio
-    return {
-        "role": "assistant",
-        "content": f"[{agent_name}]: {content}",
-        "metadata": metadata or {}
-    }
+    try:
+        # Ensure content is a string
+        if content is None:
+            content = "No content provided"
+        elif not isinstance(content, str):
+            content = str(content)
+            
+        # Ensure metadata is a dictionary
+        if metadata is not None and not isinstance(metadata, dict):
+            logger.warning(f"Invalid metadata type: {type(metadata)}. Using empty dict instead.")
+            metadata = {}
+        
+        # Format consistently for both LangChain and LM Studio
+        message = {
+            "role": "assistant",
+            "content": f"[{agent_name}]: {content}",
+            "metadata": metadata or {}
+        }
+        
+        # Ensure metadata contains agent information for routing
+        if "agent" not in message["metadata"]:
+            message["metadata"]["agent"] = agent_name
+            
+        return message
+    except Exception as e:
+        logger.error(f"Error creating agent message: {str(e)}")
+        # Return a minimal valid message as fallback
+        return {
+            "role": "assistant",
+            "content": f"[{agent_name}]: Error creating message",
+            "metadata": {"agent": agent_name, "error": str(e)}
+        }
 
 def generate_search_queries(user_query: str) -> List[str]:
     """
@@ -153,6 +179,27 @@ def generate_search_queries(user_query: str) -> List[str]:
     # Return up to 7 queries for more comprehensive research
     return unique_queries[:7]
 
+def _ensure_compatible_roles(messages):
+    """
+    Ensure all message roles are compatible with LM Studio by converting
+    any 'system' roles to 'user' roles.
+    """
+    compatible_messages = []
+    for msg in messages:
+        # Clone the message
+        new_msg = {**msg}
+        # Convert 'system' roles to 'user' for LM Studio compatibility
+        if new_msg.get("role") == "system":
+            new_msg["role"] = "user"
+            # Optionally add a prefix to indicate it was a system message
+            if not new_msg.get("content", "").startswith("You are acting as"):
+                new_msg["content"] = f"[SYSTEM] {new_msg.get('content', '')}"
+        # Ensure role is either 'user' or 'assistant'
+        if new_msg.get("role") not in ["user", "assistant"]:
+            new_msg["role"] = "user"
+        compatible_messages.append(new_msg)
+    return compatible_messages
+
 def research_node(messages: List, state: Dict, agent_config: Dict) -> Dict:
     """
     Strategic research agent that conducts comprehensive information gathering using external sources.
@@ -181,6 +228,9 @@ def research_node(messages: List, state: Dict, agent_config: Dict) -> Dict:
     state_summary = f"""\nCurrent Actions:\n{state.get("actions", "")}\nCurrent Plan:\n{state.get("plan", "")}\nCurrent Tasks:\n{state.get("tasks", "")}"""
     
     try:
+        # Get API configuration from state
+        api_config = state.get("api_config", {})
+        
         # Apply prompt template
         researcher_prompt = apply_prompt_template("researcher", {"state": state_summary})
         
@@ -502,7 +552,7 @@ def browser_node(messages: List, state: Dict, agent_config: Dict) -> Dict:
 
 def coordinator_node(messages: List, state: Dict, agent_config: Dict) -> Dict:
     """
-    Strategic planner that orchestrates research approach and workflow strategy.
+    Strategic coordination agent that manages the multi-agent workflow.
     
     The coordinator:
     1. Determines what information needs to be gathered 
@@ -517,203 +567,54 @@ def coordinator_node(messages: List, state: Dict, agent_config: Dict) -> Dict:
     logger.debug(f"Coordinator received {len(messages)} messages")
     
     try:
-        # Apply prompt template - ensure template exists, create fallback if not
-        try:
-            coordinator_prompt = apply_prompt_template("coordinator", {})
-        except Exception as template_error:
-            logger.error(f"Error applying coordinator template: {template_error}")
+        # Get coordinator agent with API config
+        coordinator = _get_agent_for_node("coordinator", state)
+        if not coordinator:
+            logger.error("Failed to get coordinator agent")
+            return create_agent_message(
+                "COORDINATOR",
+                "I encountered an error initializing the coordination system. Let me try to help with what I know.",
+                {"next": "SUPERVISOR"}
+            )
             
-            # Create fallback prompt focused on planning, not answering
-            coordinator_prompt = {
-                "role": "system",
-                "content": """You are the Coordinator agent. Your role is to create a strategic plan for researching this query. 
-                DO NOT answer the query directly - you are ONLY creating a research plan.
-                What information needs to be gathered? What steps should be taken to thoroughly explore this topic?"""
-            }
-        
-        # Normalize messages to ensure only valid roles are used
-        normalized_messages = []
-        for msg in messages:
-            if isinstance(msg, dict):
-                # Convert role to 'user' if not assistant (for improved compatibility)
-                role = msg.get("role", "user")
-                if role not in ["user", "assistant"]:
-                    role = "user"
-                
-                # Copy content and add to normalized messages
-                normalized_messages.append({
-                    "role": role,
-                    "content": msg.get("content", "")
-                })
-        
-        # Combine messages for the LLM
-        all_messages = [
-            coordinator_prompt,
-            {"role": "system", "content": """IMPORTANT: Your task is ONLY to create a strategic plan. 
-            DO NOT try to answer the user's question directly. 
-            You must ONLY outline steps for research and information gathering."""}
-        ]
-        
-        # Add normalized messages
-        all_messages.extend(normalized_messages)
-        
-        # Add final instruction with explicit DeepSeek priority if applicable
-        deepseek_mentioned = any("deepseek" in (msg.get("content", "").lower() if isinstance(msg, dict) else "") for msg in messages)
-        
-        final_instruction = """FINAL INSTRUCTIONS:
-1. Create a strategic research plan with specific steps
-2. Identify key subtopics that need investigation
-3. Prioritize the most important aspects to research first
-4. For technical queries, focus on gathering specifications and capabilities
-5. DO NOT attempt to answer the query - focus ONLY on planning the research approach
-"""
-
-        if deepseek_mentioned:
-            final_instruction += """
-6. Since DeepSeek was mentioned, prioritize:
-   - DeepSeek's latest capabilities and models
-   - Future development plans and roadmap
-   - Integration capabilities with BCI technology
-   - Comparison with other AI models
-"""
-            
-        all_messages.append({"role": "user", "content": final_instruction})
-        
-        # Get response from LLM
-        llm = get_llm_by_type(AGENT_LLM_MAP["coordinator"])
-        raw_response = llm.invoke(all_messages)
-        logger.debug(f"Coordinator raw response: {raw_response}")
-        
-        # Extract content from response
-        response = extract_content(raw_response)
-        logger.debug(f"Extracted response content: {response}")
-        
-        # Check if the response looks like an answer instead of a plan
-        answer_phrases = ["the answer is", "to answer your question", "based on my knowledge", "the information you're looking for"]
-        
-        if any(phrase in response.lower() for phrase in answer_phrases):
-            logger.warning("Coordinator attempted to answer directly - correcting response")
-            
-            # Create a fallback strategic plan
-            response = """# Strategic Research Plan
-
-## Information Gathering Priorities
-1. Gather comprehensive technical specifications and capabilities
-2. Research current pricing and availability information
-3. Identify real-world applications and use cases
-4. Explore integration possibilities with other systems
-5. Find the most recent developments and future roadmaps
-
-## Key Subtopics for Investigation
-- Technical specifications and performance metrics
-- Cost analysis and accessibility factors
-- Implementation requirements and challenges
-- Novel use cases with practical impact
-- Current state-of-the-art and future directions
-
-The researcher should prioritize finding the most recent information available, particularly from 2025 sources."""
-            
-        # Check for DeepSeek specific instructions if mentioned
-        if deepseek_mentioned and "deepseek" not in response.lower():
-            logger.warning("DeepSeek mentioned but not in plan - adding DeepSeek research priorities")
-            
-            # Add DeepSeek research priorities
-            response += """
-
-## DeepSeek Research Priorities
-1. Investigate DeepSeek's latest model capabilities and technical specifications
-2. Research DeepSeek's future development roadmap (2025 and beyond)
-3. Explore DeepSeek's integration capabilities with BCI technology
-4. Compare DeepSeek with other leading AI models in terms of performance
-5. Identify novel applications of DeepSeek with generalized agents"""
-        
-        # Update state with coordinator's action plan
-        state["plan"] = response
-        state["actions"] = state.get("actions", "") + f"\n- Coordinator created strategic research plan."
-        
-        # Create response message
-        result = create_agent_message("COORDINATOR", response, None)
-        
-        # Update state messages for consistency
-        if "messages" in state and isinstance(state["messages"], list):
-            state["messages"].append(result)
-            
+        # Process messages with the coordinator agent
+        result = coordinator.process_messages(messages, state, agent_config)
         return result
+        
     except Exception as e:
         logger.error(f"Error in coordinator_node: {e}")
-        logger.error(f"Traceback: {traceback.format_exc()}")
-        
-        # Create fallback plan for error case
-        fallback_plan = """# Strategic Research Plan - Fallback
-
-## Information Gathering Priorities
-1. Research the Enobio 32 BCI specifications, capabilities, and pricing
-2. Investigate the latest advancements in BCI technology (2025)
-3. Explore practical applications for software engineers
-4. Identify realistic use cases with life-changing impact
-5. Research integration possibilities with AI systems
-
-The researcher should focus on finding factual, technical information from reliable sources."""
-        
-        # Update state with fallback plan
-        state["plan"] = fallback_plan
-        state["actions"] = state.get("actions", "") + f"\n- Coordinator created fallback research plan due to error."
-        
-        # Create fallback message
-        result = create_agent_message("COORDINATOR", fallback_plan, None)
-        
-        # Update state messages even in error case
-        if "messages" in state and isinstance(state["messages"], list):
-            state["messages"].append(result)
-            
-        return result
+        return create_agent_message(
+            "COORDINATOR",
+            f"I encountered an error while coordinating: {str(e)}. Let me redirect to another agent that can help.",
+            {"next": "SUPERVISOR", "error": str(e)}
+        )
 
 def planner_node(messages: List, state: Dict, agent_config: Dict) -> Dict:
     """The planner creates a detailed plan for solving the problem."""
     logger.info("Running planner")
     
-    # Format prompt with current state
-    state_summary = f"""\nCurrent Actions:\n{state.get("actions", "")}\nCurrent Plan:\n{state.get("plan", "")}\nCurrent Tasks:\n{state.get("tasks", "")}"""
-    
-    # Apply prompt template
-    planner_prompt = apply_prompt_template("planner", {"state": state_summary})
-    
-    # Normalize messages for consistency
-    normalized_messages = normalize_messages(messages)
-    
-    # Combine messages
-    all_messages = [planner_prompt, *normalized_messages]
-    
-    # Get response from LLM
     try:
-        llm = get_llm_by_type(AGENT_LLM_MAP["planner"])
-        response = llm.invoke(all_messages)
-        logger.debug(f"Planner response: {response}")
-        
-        # Update state with new plan
-        state["plan"] = response
-        state["actions"] = state.get("actions", "") + f"\n- Planner created a detailed plan for solving the problem."
-        
-        # Create response message
-        result = create_agent_message("PLANNER", response, None)
-        
-        # Update state messages for consistency
-        if "messages" in state and isinstance(state["messages"], list):
-            state["messages"].append(result)
+        # Get planner agent with API config
+        planner = _get_agent_for_node("planner", state)
+        if not planner:
+            logger.error("Failed to get planner agent")
+            return create_agent_message(
+                "PLANNER",
+                "I encountered an error initializing the planning system. Let me try to help with what I know.",
+                {"next": "SUPERVISOR"}
+            )
             
+        # Process messages with the planner agent
+        result = planner.process_messages(messages, state, agent_config)
         return result
+        
     except Exception as e:
         logger.error(f"Error in planner_node: {e}")
-        logger.error(f"Traceback: {traceback.format_exc()}")
-        
-        # Create error message
-        result = create_agent_message("PLANNER", "Error occurred during planning.", None)
-        
-        # Update state messages even in error case
-        if "messages" in state and isinstance(state["messages"], list):
-            state["messages"].append(result)
-            
-        return result
+        return create_agent_message(
+            "PLANNER",
+            f"I encountered an error while planning: {str(e)}. Let me redirect to another agent that can help.",
+            {"next": "SUPERVISOR", "error": str(e)}
+        )
 
 def reporter_node(messages: List, state: Dict, agent_config: Dict) -> Dict:
     """
@@ -1246,3 +1147,44 @@ def writer_node(messages: List, state: Dict, agent_config: Dict) -> Dict:
             state["messages"].append(result)
             
         return result
+
+def _get_agent_for_node(node_name: str, state: Dict) -> Any:
+    """
+    Helper function to get the appropriate agent instance for a node with the API config.
+    
+    Args:
+        node_name: Name of the node/agent (e.g., "researcher", "planner")
+        state: Current state containing API configuration
+        
+    Returns:
+        Instance of the agent
+    """
+    from src.agents.researcher import ResearchAgent
+    from src.agents.planner import PlannerAgent
+    from src.agents.coder import CoderAgent
+    from src.agents.browser import BrowserAgent
+    from src.agents.reporter import ReporterAgent
+    from src.agents.coordinator import CoordinatorAgent
+    from src.agents.supervisor import SupervisorAgent
+    
+    api_config = state.get("api_config", {})
+    
+    # Map node names to agent classes
+    agent_map = {
+        "researcher": lambda: ResearchAgent(api_config),
+        "planner": lambda: PlannerAgent(api_config),
+        "coder": lambda: CoderAgent(api_config),
+        "browser": lambda: BrowserAgent(api_config),
+        "reporter": lambda: ReporterAgent(api_config),
+        "coordinator": lambda: CoordinatorAgent(api_config),
+        "supervisor": lambda: SupervisorAgent(api_config),
+    }
+    
+    # Get the appropriate agent constructor
+    agent_constructor = agent_map.get(node_name.lower())
+    
+    if agent_constructor:
+        return agent_constructor()
+    else:
+        logger.warning(f"No agent constructor found for node: {node_name}")
+        return None

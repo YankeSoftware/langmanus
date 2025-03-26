@@ -5,6 +5,7 @@ from langgraph.prebuilt.chat_agent_executor import AgentState
 import logging
 from typing import Dict, Any, List
 from langchain_core.messages import BaseMessage
+import sys
 
 logger = logging.getLogger(__name__)
 
@@ -115,65 +116,91 @@ def apply_prompt_template(prompt_name: str, state: Any) -> Dict[str, str]:
         A user message with the rendered template
     """
     # Log the inputs for debugging
-    logger.debug(f"Template requested: {prompt_name}")
-    logger.debug(f"State data type: {type(state)}")
-    logger.debug(f"State contents: {state}")
-    
-    # Ensure state is a dictionary
-    if not isinstance(state, dict):
-        state = {"state": str(state)}
-    
-    # Convert state to dict for template rendering
-    state_vars = {
-        "CURRENT_TIME": datetime.now().strftime("%a %b %d %Y %H:%M:%S %z"),
-    }
-    
-    # Add state variables safely
-    for key, value in state.items():
-        state_vars[key] = value
-    
-    logger.debug(f"Template variables: {state_vars}")
-
     try:
-        # Find template file
-        template_path = f"{prompt_name}.md"
-        template = None
+        logger.debug(f"Template requested: {prompt_name}")
+        logger.debug(f"State data type: {type(state)}")
+        logger.debug(f"State contents: {state}")
         
+        # Ensure state is a dictionary
+        if not isinstance(state, dict):
+            state = {"state": str(state)}
+        
+        # Convert state to dict for template rendering
+        state_vars = {
+            "CURRENT_TIME": datetime.now().strftime("%a %b %d %Y %H:%M:%S "),
+        }
+        
+        # Add state variables safely
+        for key, value in state.items():
+            try:
+                # Don't try to add extremely large structures as template variables
+                if key == "messages" and isinstance(value, list) and len(value) > 20:
+                    # Take just the last few messages to avoid template explosion
+                    state_vars[key] = value[-10:]
+                    logger.debug(f"Truncated messages to last 10 for template rendering")
+                elif isinstance(value, (dict, list)) and sys.getsizeof(str(value)) > 10000:
+                    # For large structures, add a summary instead
+                    state_vars[key] = f"[Large {type(value).__name__}: {len(value)} items]"
+                    logger.debug(f"Replaced large {key} with summary for template rendering")
+                else:
+                    state_vars[key] = value
+            except Exception as e:
+                logger.warning(f"Error adding template variable {key}: {str(e)}")
+                # Skip this variable
+                continue
+        
+        logger.debug(f"Template variables prepared: {list(state_vars.keys())}")
+
         try:
-            template = env.get_template(template_path)
-            logger.debug(f"Template found: {template_path}")
-        except Exception as template_error:
-            logger.error(f"Error loading template {prompt_name}: {template_error}")
-            # Create a fallback template string
-            fallback_text = f"You are acting as the {prompt_name.capitalize()} agent.\n\n"
-            fallback_text += f"Current time: {state_vars['CURRENT_TIME']}\n\n"
+            # Find template file
+            template_path = f"{prompt_name}.md"
+            template = None
             
-            if 'state' in state_vars:
-                fallback_text += f"Current state:\n{state_vars['state']}\n\n"
+            try:
+                template = env.get_template(template_path)
+                logger.debug(f"Template found: {template_path}")
+            except Exception as template_error:
+                logger.error(f"Error loading template {prompt_name}: {template_error}")
+                # Create a fallback template string
+                fallback_text = f"You are acting as the {prompt_name.capitalize()} agent.\n\n"
+                fallback_text += f"Current time: {state_vars['CURRENT_TIME']}\n\n"
                 
-            fallback_text += "Please help with the current task based on your role."
+                if 'state' in state_vars:
+                    fallback_text += f"Current state:\n{state_vars['state']}\n\n"
+                    
+                fallback_text += "Please help with the current task based on your role."
+                
+                # Return fallback message - always as user for LM Studio compatibility
+                return {"role": "user", "content": fallback_text}
             
-            # Return fallback message
-            return {"role": "user", "content": fallback_text}
-        
-        # Render the template with variables
-        try:
-            system_prompt = template.render(**state_vars)
-            logger.debug(f"Template rendered successfully")
-        except Exception as render_error:
-            logger.error(f"Error rendering template {prompt_name}: {render_error}")
-            logger.error(f"Template variables: {state_vars}")
-            # Return a simplified message
-            return {"role": "user", "content": f"You are acting as the {prompt_name.capitalize()} agent. Please help with the current task."}
-        
-        # Create a system message as user message with role prefix for LM Studio compatibility
-        role_prefix = f"You are acting as the {prompt_name.capitalize()} agent. "
-        system_as_user = {"role": "user", "content": role_prefix + system_prompt}
-        
-        # Return the single message
-        return system_as_user
-        
-    except Exception as e:
-        logger.exception(f"Error applying template {prompt_name}")
-        # Return a minimal working message
-        return {"role": "user", "content": f"You are the {prompt_name} agent. Please help with the current request."}
+            # Render the template with variables, with proper error handling
+            try:
+                # Set a timeout for template rendering to prevent hangs
+                def render_template():
+                    return template.render(**state_vars)
+                
+                # Attempt to render with timeout
+                system_prompt = render_template()
+                logger.debug(f"Template rendered successfully")
+            except Exception as render_error:
+                logger.error(f"Error rendering template {prompt_name}: {render_error}")
+                logger.error(f"Template variables: {list(state_vars.keys())}")
+                # Return a simplified message
+                return {"role": "user", "content": f"You are acting as the {prompt_name.capitalize()} agent. Please help with the current task."}
+            
+            # Create a system message as user message with role prefix for LM Studio compatibility
+            # LM Studio only supports 'user' and 'assistant' roles
+            role_prefix = f"You are acting as the {prompt_name.capitalize()} agent. "
+            system_as_user = {"role": "user", "content": role_prefix + system_prompt}
+            
+            # Return the single message
+            return system_as_user
+            
+        except Exception as e:
+            logger.exception(f"Error applying template {prompt_name}")
+            # Return a minimal working message
+            return {"role": "user", "content": f"You are the {prompt_name} agent. Please help with the current request."}
+    except Exception as outer_e:
+        # Ultimate fallback for any unexpected errors
+        logger.error(f"Critical error in template application: {str(outer_e)}")
+        return {"role": "user", "content": f"Act as an AI assistant and help with the user's request."}
